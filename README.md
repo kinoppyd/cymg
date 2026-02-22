@@ -153,9 +153,11 @@ cymg --green --scanline 0.72 --scanline-step 2 --glitch-rate 0.24 --bloom 0.36 -
 - Does not write numbered `<original_stem>.cyber.<index>.<ext>` files.
 - For performance, very large inputs are automatically resized for GIF encoding (long edge capped).
 - Frame behavior:
-  - frame `0` is the keyframe and is shown longer first.
-  - frames `1..9` are shown briefly one by one.
-  - after each brief frame, the keyframe is shown again.
+  - frame `0` is the first keyframe and is shown longer first.
+  - frames `1..3` are shown briefly one by one, returning to frame `0`.
+  - frame `4` is the second keyframe and is also shown for the same long duration.
+  - frames `5..9` are shown briefly; between them it returns to frame `4` (except after frame `9`).
+  - after frame `9`, loop restart returns directly to frame `0`.
 - The GIF loops infinitely.
 
 ### Help

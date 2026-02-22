@@ -9,7 +9,6 @@ use image::{Delay, Frame, RgbImage, Rgba, RgbaImage};
 const KEYFRAME_HOLD_MS: u32 = 1_200;
 const FLASH_MS: u32 = 70;
 const RETURN_MS: u32 = 150;
-const END_HOLD_MS: u32 = 700;
 const GIF_ENCODER_SPEED: i32 = 30;
 const MAX_GIF_EDGE: u32 = 960;
 
@@ -21,23 +20,43 @@ pub(crate) fn write_flash_animation_gif(
         return Err("animation requires at least one frame".into());
     }
 
-    let keyframe_rgb = resize_for_gif(&frames[0]);
-    let keyframe = rgb_to_rgba(&keyframe_rgb);
+    let resized_frames: Vec<RgbaImage> = frames
+        .iter()
+        .map(|frame| rgb_to_rgba(&resize_for_gif(frame)))
+        .collect();
+    let first_keyframe = resized_frames[0].clone();
 
     let file = File::create(output_path)?;
     let mut encoder = GifEncoder::new_with_speed(file, GIF_ENCODER_SPEED);
     encoder.set_repeat(Repeat::Infinite)?;
 
-    encoder.encode_frame(to_frame(keyframe.clone(), KEYFRAME_HOLD_MS))?;
+    encoder.encode_frame(to_frame(first_keyframe.clone(), KEYFRAME_HOLD_MS))?;
 
-    for alt_rgb in &frames[1..] {
-        let alt_resized = resize_for_gif(alt_rgb);
-        let alt = rgb_to_rgba(&alt_resized);
-        encoder.encode_frame(to_frame(alt, FLASH_MS))?;
-        encoder.encode_frame(to_frame(keyframe.clone(), RETURN_MS))?;
+    if resized_frames.len() > 4 {
+        for alt in &resized_frames[1..4] {
+            encoder.encode_frame(to_frame(alt.clone(), FLASH_MS))?;
+            encoder.encode_frame(to_frame(first_keyframe.clone(), RETURN_MS))?;
+        }
+
+        let second_keyframe = resized_frames[4].clone();
+        encoder.encode_frame(to_frame(second_keyframe.clone(), KEYFRAME_HOLD_MS))?;
+
+        let tail = &resized_frames[5..];
+        for (i, alt) in tail.iter().enumerate() {
+            encoder.encode_frame(to_frame(alt.clone(), FLASH_MS))?;
+            if i + 1 != tail.len() {
+                encoder.encode_frame(to_frame(second_keyframe.clone(), RETURN_MS))?;
+            }
+        }
+    } else {
+        let tail = &resized_frames[1..];
+        for (i, alt) in tail.iter().enumerate() {
+            encoder.encode_frame(to_frame(alt.clone(), FLASH_MS))?;
+            if i + 1 != tail.len() {
+                encoder.encode_frame(to_frame(first_keyframe.clone(), RETURN_MS))?;
+            }
+        }
     }
-
-    encoder.encode_frame(to_frame(keyframe, END_HOLD_MS))?;
     Ok(())
 }
 
