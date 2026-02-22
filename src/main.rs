@@ -37,8 +37,8 @@ impl Default for EffectSettings {
             intensity: 1.0,
             glitch_shift: 9,
             glitch_rate: 0.18,
-            scanline: 0.24,
-            scanline_step: 3,
+            scanline: 0.62,
+            scanline_step: 2,
             vignette: 0.45,
             brightness: 0.0,
             contrast: 1.08,
@@ -266,8 +266,8 @@ fn print_help(bin: &str) {
     println!("  --intensity <0.0-2.0>      Overall effect strength (default: 1.0)");
     println!("  --glitch-shift <0-128>     RGB shift size in pixels (default: 9)");
     println!("  --glitch-rate <0.0-1.0>    Chance of strong glitch rows (default: 0.18)");
-    println!("  --scanline <0.0-1.0>       Scanline darkness (default: 0.24)");
-    println!("  --scanline-step <1-32>     Scanline interval in rows (default: 3)");
+    println!("  --scanline <0.0-1.0>       Scanline strength (default: 0.62)");
+    println!("  --scanline-step <1-32>     Scanline interval in rows (default: 2)");
     println!("  --vignette <0.0-1.0>       Vignette amount (default: 0.45)");
     println!("  --brightness <-1.0-1.0>    Brightness shift (default: 0.0)");
     println!("  --contrast <0.0-3.0>       Contrast gain (default: 1.08)");
@@ -343,11 +343,46 @@ fn apply_cyberpunk_effect(src: &RgbImage, settings: EffectSettings) -> RgbImage 
             g = g_mix;
             b = b_mix;
 
-            if settings.scanline > 0.0 && y % settings.scanline_step == 0 {
-                let scanline_factor = 1.0 - settings.scanline;
-                r *= scanline_factor;
-                g *= scanline_factor;
-                b *= scanline_factor;
+            if settings.scanline > 0.0 {
+                let depth = settings.scanline.clamp(0.0, 1.0);
+                let phase = y % settings.scanline_step;
+                let mut scanline_factor = if phase == 0 {
+                    1.0 - depth * 1.10
+                } else if phase == 1 {
+                    1.0 + depth * 0.98
+                } else {
+                    1.0 + depth * 0.35
+                };
+
+                // Slight aperture-style variation makes scanlines stand out on photo textures.
+                let aperture = if x % 3 == 0 {
+                    1.0 + depth * 0.14
+                } else {
+                    1.0 - depth * 0.07
+                };
+                scanline_factor *= aperture;
+
+                if phase == 0 {
+                    // Dark rows: stronger attenuation + subtle magenta tint.
+                    r *= scanline_factor * (1.0 + depth * 0.05);
+                    g *= scanline_factor * (1.0 - depth * 0.06);
+                    b *= scanline_factor * (1.0 + depth * 0.07);
+                    r -= depth * 18.0;
+                    g -= depth * 24.0;
+                    b -= depth * 16.0;
+                } else if phase == 1 {
+                    // Bright rows: lift highlights so scanlines remain obvious.
+                    r *= scanline_factor * (1.0 + depth * 0.10);
+                    g *= scanline_factor * (1.0 + depth * 0.04);
+                    b *= scanline_factor * (1.0 + depth * 0.13);
+                    r += depth * 12.0;
+                    g += depth * 10.0;
+                    b += depth * 15.0;
+                } else {
+                    r *= scanline_factor;
+                    g *= scanline_factor;
+                    b *= scanline_factor;
+                }
             }
 
             if settings.vignette > 0.0 {
