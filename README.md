@@ -23,6 +23,27 @@ Show help:
 cymg --help
 ```
 
+## Sample Output
+
+Reference image:
+
+- https://avatars.githubusercontent.com/u/2846039?v=4
+
+Generated files:
+
+- Source: `docs/images/sample-source.png`
+- Processed: `docs/images/sample-cyber.png`
+
+Command used:
+
+```bash
+cymg --green --scanline 0.72 --scanline-step 2 --glitch-rate 0.24 --bloom 0.36 --noise 0.14 --contrast 1.22 docs/images/sample-source.png
+```
+
+| Source | Cyberpunk Output |
+| --- | --- |
+| ![Source sample](docs/images/sample-source.png) | ![Cyber sample](docs/images/sample-cyber.png) |
+
 ## Option Reference
 
 ### Color Mode (Mutually Exclusive)

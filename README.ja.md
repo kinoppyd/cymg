@@ -23,6 +23,27 @@ cymg [options] <image-path>
 cymg --help
 ```
 
+## サンプル出力
+
+参照画像:
+
+- https://avatars.githubusercontent.com/u/2846039?v=4
+
+生成ファイル:
+
+- 元画像: `docs/images/sample-source.png`
+- 加工後: `docs/images/sample-cyber.png`
+
+使用コマンド:
+
+```bash
+cymg --green --scanline 0.72 --scanline-step 2 --glitch-rate 0.24 --bloom 0.36 --noise 0.14 --contrast 1.22 docs/images/sample-source.png
+```
+
+| 元画像 | 加工後 |
+| --- | --- |
+| ![Source sample](docs/images/sample-source.png) | ![Cyber sample](docs/images/sample-cyber.png) |
+
 ## パラメータ詳細
 
 ### 色モード（同時指定不可）
