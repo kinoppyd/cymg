@@ -11,6 +11,7 @@ cymg [options] <image-path>
 - 入力: 画像ファイルを 1 つ指定
 - 出力: 入力と同じディレクトリに
   - `<元ファイル名>.cyber.<元拡張子>`
+  - `--random` 使用時: `<元ファイル名>.cyber.<連番>.<元拡張子>`（連番は `0` 始まり）
 
 例:
 
@@ -131,6 +132,15 @@ cymg --green --scanline 0.72 --scanline-step 2 --glitch-rate 0.24 --bloom 0.36 -
 - 同じ入力・同じオプション・同じ seed で再現可能。
 - seed を変えるとバリエーションが変わります。
 
+### ランダム連続生成
+
+`--random`
+
+- 1回の実行で、ランダム化したパラメータの画像を 10 枚生成します。
+- 出力ファイル名は連番 `0` から `9` になります。
+- 色モード（`--red` / `--green` / `--blue`）は維持され、ランダム化されません。
+- 色モード未指定時は、10枚ともニュートラルな色モードのまま生成されます。
+
 ### ヘルプ
 
 `-h`, `--help`
@@ -161,4 +171,10 @@ cymg --blue --scanline 0.70 --scanline-step 2 --vignette 0.60 input.png
 
 ```bash
 cymg --green --contrast 1.30 --saturation 1.35 --noise 0.20 --bloom 0.35 --seed 42 input.webp
+```
+
+青寄りを維持してランダム10枚生成:
+
+```bash
+cymg --blue --random input.jpg
 ```

@@ -11,6 +11,7 @@ cymg [options] <image-path>
 - Input: one image file path
 - Output: saved in the same directory as:
   - `<original_stem>.cyber.<original_ext>`
+  - with `--random`: `<original_stem>.cyber.<index>.<original_ext>` (`index` starts at `0`)
 
 Example:
 
@@ -132,6 +133,15 @@ cymg --green --scanline 0.72 --scanline-step 2 --glitch-rate 0.24 --bloom 0.36 -
 - Same input + same options + same seed gives repeatable results.
 - Change seed to get another variation.
 
+### Random Batch
+
+`--random`
+
+- Generates 10 images in one run with randomized effect parameters.
+- Output names are numbered from `0` to `9`.
+- The selected color mode (`--red` / `--green` / `--blue`) is preserved and is not randomized.
+- If no color mode is specified, color mode remains neutral for all 10 outputs.
+
 ### Help
 
 `-h`, `--help`
@@ -162,4 +172,10 @@ High-contrast green cinematic look:
 
 ```bash
 cymg --green --contrast 1.30 --saturation 1.35 --noise 0.20 --bloom 0.35 --seed 42 input.webp
+```
+
+Randomized 10-image batch while keeping blue tone:
+
+```bash
+cymg --blue --random input.jpg
 ```
