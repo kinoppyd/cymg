@@ -52,6 +52,7 @@ pub(crate) struct CliArgs {
     pub(crate) input_path: PathBuf,
     pub(crate) settings: EffectSettings,
     pub(crate) random_mode: bool,
+    pub(crate) animation_mode: bool,
 }
 
 pub(crate) enum ParseOutcome {
@@ -68,6 +69,7 @@ pub(crate) fn parse_args() -> Result<ParseOutcome, Box<dyn Error>> {
     let mut input_path: Option<PathBuf> = None;
     let mut settings = EffectSettings::default();
     let mut random_mode = false;
+    let mut animation_mode = false;
 
     while let Some(arg) = args.next() {
         let arg = arg.to_string_lossy().into_owned();
@@ -120,6 +122,9 @@ pub(crate) fn parse_args() -> Result<ParseOutcome, Box<dyn Error>> {
             "--random" => {
                 random_mode = true;
             }
+            "--animation" => {
+                animation_mode = true;
+            }
             _ if arg.starts_with('-') => {
                 return Err(format!("unknown option: {arg}\n{usage}").into());
             }
@@ -132,11 +137,16 @@ pub(crate) fn parse_args() -> Result<ParseOutcome, Box<dyn Error>> {
         }
     }
 
+    if animation_mode {
+        random_mode = true;
+    }
+
     let input_path = input_path.ok_or(usage)?;
     Ok(ParseOutcome::Run(CliArgs {
         input_path,
         settings,
         random_mode,
+        animation_mode,
     }))
 }
 
@@ -256,6 +266,9 @@ fn print_help(bin: &str) {
     println!(
         "  --random                   Generate 10 randomized variants (keeps selected color mode)"
     );
+    println!(
+        "  --animation                Generate 10 random frames in memory and output only <input-stem>.cyber.gif"
+    );
     println!("  -h, --help                 Show this help");
     println!();
     println!("Output:");
@@ -269,4 +282,5 @@ fn print_help(bin: &str) {
         "  {bin} --brightness -0.10 --contrast 1.25 --saturation 1.4 --noise 0.2 --bloom 0.35 --seed 42 input.webp"
     );
     println!("  {bin} --green --random input.jpg");
+    println!("  {bin} --green --animation input.jpg");
 }

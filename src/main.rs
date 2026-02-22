@@ -1,3 +1,4 @@
+mod animation;
 mod cli;
 mod effects;
 mod output;
@@ -7,10 +8,11 @@ use std::error::Error;
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use animation::{resize_for_gif, write_flash_animation_gif};
 use cli::{CliArgs, EffectSettings, ParseOutcome, parse_args};
 use effects::apply_cyberpunk_effect;
 use image::RgbImage;
-use output::{build_output_path, build_output_path_with_index};
+use output::{build_animation_output_path, build_output_path, build_output_path_with_index};
 
 fn main() {
     if let Err(err) = run() {
@@ -40,13 +42,38 @@ fn run() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_random_batch(args: &CliArgs, src: &RgbImage) -> Result<(), Box<dyn Error>> {
-    let mut rng = SplitMix64::new(seed_from_time() ^ args.settings.seed ^ (src.width() as u64));
+    let animation_src = if args.animation_mode {
+        Some(resize_for_gif(src))
+    } else {
+        None
+    };
+    let working_src = animation_src.as_ref().unwrap_or(src);
+
+    let mut rng =
+        SplitMix64::new(seed_from_time() ^ args.settings.seed ^ (working_src.width() as u64));
+    let mut generated_frames = if args.animation_mode {
+        Some(Vec::with_capacity(10))
+    } else {
+        None
+    };
+
     for index in 0..10 {
         let randomized = randomize_settings(args.settings, &mut rng);
-        let dst = apply_cyberpunk_effect(src, randomized);
+        let dst = apply_cyberpunk_effect(working_src, randomized);
+        if let Some(frames) = generated_frames.as_mut() {
+            frames.push(dst);
+            continue;
+        }
+
         let output_path = build_output_path_with_index(&args.input_path, index)?;
         dst.save(&output_path)?;
         println!("{}", output_path.display());
+    }
+
+    if let Some(frames) = generated_frames {
+        let animation_path = build_animation_output_path(&args.input_path)?;
+        write_flash_animation_gif(&animation_path, &frames)?;
+        println!("{}", animation_path.display());
     }
 
     Ok(())

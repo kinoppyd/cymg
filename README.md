@@ -12,6 +12,7 @@ cymg [options] <image-path>
 - Output: saved in the same directory as:
   - `<original_stem>.cyber.<original_ext>`
   - with `--random`: `<original_stem>.cyber.<index>.<original_ext>` (`index` starts at `0`)
+  - with `--animation`: `<original_stem>.cyber.gif`
 
 Example:
 
@@ -142,6 +143,21 @@ cymg --green --scanline 0.72 --scanline-step 2 --glitch-rate 0.24 --bloom 0.36 -
 - The selected color mode (`--red` / `--green` / `--blue`) is preserved and is not randomized.
 - If no color mode is specified, color mode remains neutral for all 10 outputs.
 
+### Animation GIF
+
+`--animation`
+
+- Internally runs random 10-image generation first.
+- Builds one GIF from those randomized outputs.
+- Output file name is `<original_stem>.cyber.gif`.
+- Does not write numbered `<original_stem>.cyber.<index>.<ext>` files.
+- For performance, very large inputs are automatically resized for GIF encoding (long edge capped).
+- Frame behavior:
+  - frame `0` is the keyframe and is shown longer first.
+  - frames `1..9` are shown briefly one by one.
+  - after each brief frame, the keyframe is shown again.
+- The GIF loops infinitely.
+
 ### Help
 
 `-h`, `--help`
@@ -178,4 +194,10 @@ Randomized 10-image batch while keeping blue tone:
 
 ```bash
 cymg --blue --random input.jpg
+```
+
+Animation mode (runs random batch internally):
+
+```bash
+cymg --green --animation input.jpg
 ```
