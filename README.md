@@ -151,7 +151,7 @@ cymg --green --scanline 0.72 --scanline-step 2 --glitch-rate 0.24 --bloom 0.36 -
 - Builds one GIF from those randomized outputs.
 - Output file name is `<original_stem>.cyber.gif`.
 - Does not write numbered `<original_stem>.cyber.<index>.<ext>` files.
-- For performance, very large inputs are automatically resized for GIF encoding (long edge capped).
+- For performance, very large inputs are automatically resized for GIF encoding within `800x600` while preserving aspect ratio.
 - Frame behavior:
   - frame `0` is the first keyframe and is shown longer first.
   - frames `1..3` are shown briefly one by one, returning to frame `0`.

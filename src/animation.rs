@@ -10,7 +10,8 @@ const KEYFRAME_HOLD_MS: u32 = 1_200;
 const FLASH_MS: u32 = 70;
 const RETURN_MS: u32 = 150;
 const GIF_ENCODER_SPEED: i32 = 30;
-const MAX_GIF_EDGE: u32 = 960;
+const MAX_GIF_WIDTH: u32 = 800;
+const MAX_GIF_HEIGHT: u32 = 600;
 
 pub(crate) fn write_flash_animation_gif(
     output_path: &Path,
@@ -62,12 +63,13 @@ pub(crate) fn write_flash_animation_gif(
 
 pub(crate) fn resize_for_gif(src: &RgbImage) -> RgbImage {
     let (w, h) = src.dimensions();
-    let longest = w.max(h);
-    if longest <= MAX_GIF_EDGE {
+    if w <= MAX_GIF_WIDTH && h <= MAX_GIF_HEIGHT {
         return src.clone();
     }
 
-    let scale = MAX_GIF_EDGE as f32 / longest as f32;
+    let scale_w = MAX_GIF_WIDTH as f32 / w as f32;
+    let scale_h = MAX_GIF_HEIGHT as f32 / h as f32;
+    let scale = scale_w.min(scale_h);
     let target_w = ((w as f32 * scale).round()).max(1.0) as u32;
     let target_h = ((h as f32 * scale).round()).max(1.0) as u32;
     image::imageops::resize(src, target_w, target_h, FilterType::Triangle)
