@@ -1,3 +1,562 @@
+use std::env;
+use std::error::Error;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::process;
+
+use image::{ImageBuffer, Rgb, RgbImage};
+
+#[derive(Clone, Copy)]
+enum ColorBoost {
+    None,
+    Red,
+    Green,
+    Blue,
+}
+
+#[derive(Clone, Copy)]
+struct EffectSettings {
+    intensity: f32,
+    glitch_shift: i32,
+    glitch_rate: f32,
+    scanline: f32,
+    scanline_step: u32,
+    vignette: f32,
+    brightness: f32,
+    contrast: f32,
+    saturation: f32,
+    noise: f32,
+    bloom: f32,
+    seed: u64,
+    color_boost: ColorBoost,
+}
+
+impl Default for EffectSettings {
+    fn default() -> Self {
+        Self {
+            intensity: 1.0,
+            glitch_shift: 9,
+            glitch_rate: 0.18,
+            scanline: 0.24,
+            scanline_step: 3,
+            vignette: 0.45,
+            brightness: 0.0,
+            contrast: 1.08,
+            saturation: 1.15,
+            noise: 0.08,
+            bloom: 0.20,
+            seed: 2_077,
+            color_boost: ColorBoost::None,
+        }
+    }
+}
+
+struct CliArgs {
+    input_path: PathBuf,
+    settings: EffectSettings,
+}
+
+enum ParseOutcome {
+    Run(CliArgs),
+    HelpShown,
+}
+
 fn main() {
-    println!("Hello, world!");
+    if let Err(err) = run() {
+        eprintln!("error: {err}");
+        process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
+    let args = match parse_args()? {
+        ParseOutcome::Run(args) => args,
+        ParseOutcome::HelpShown => return Ok(()),
+    };
+
+    let output_path = build_output_path(&args.input_path)?;
+    let src = image::open(&args.input_path)?.to_rgb8();
+    let dst = apply_cyberpunk_effect(&src, args.settings);
+
+    dst.save(&output_path)?;
+    println!("{}", output_path.display());
+
+    Ok(())
+}
+
+fn parse_args() -> Result<ParseOutcome, Box<dyn Error>> {
+    let mut args = env::args_os();
+    let program = args.next().unwrap_or_else(|| OsString::from("cymg"));
+    let bin = Path::new(&program).display().to_string();
+    let usage = format!("usage: {bin} [options] <image-path>\ntry: {bin} --help");
+
+    let mut input_path: Option<PathBuf> = None;
+    let mut settings = EffectSettings::default();
+
+    while let Some(arg) = args.next() {
+        let arg = arg.to_string_lossy().into_owned();
+
+        match arg.as_str() {
+            "-h" | "--help" => {
+                print_help(&bin);
+                return Ok(ParseOutcome::HelpShown);
+            }
+            "--red" => {
+                if !matches!(settings.color_boost, ColorBoost::None) {
+                    return Err(format!("only one color flag can be specified\n{usage}").into());
+                }
+                settings.color_boost = ColorBoost::Red;
+            }
+            "--green" => {
+                if !matches!(settings.color_boost, ColorBoost::None) {
+                    return Err(format!("only one color flag can be specified\n{usage}").into());
+                }
+                settings.color_boost = ColorBoost::Green;
+            }
+            "--blue" => {
+                if !matches!(settings.color_boost, ColorBoost::None) {
+                    return Err(format!("only one color flag can be specified\n{usage}").into());
+                }
+                settings.color_boost = ColorBoost::Blue;
+            }
+            "--intensity" => {
+                settings.intensity = parse_f32_arg(&mut args, "--intensity", 0.0, 2.0, &usage)?;
+            }
+            "--glitch-shift" => {
+                settings.glitch_shift = parse_i32_arg(&mut args, "--glitch-shift", 0, 128, &usage)?;
+            }
+            "--glitch-rate" => {
+                settings.glitch_rate = parse_f32_arg(&mut args, "--glitch-rate", 0.0, 1.0, &usage)?;
+            }
+            "--scanline" => {
+                settings.scanline = parse_f32_arg(&mut args, "--scanline", 0.0, 1.0, &usage)?;
+            }
+            "--scanline-step" => {
+                settings.scanline_step =
+                    parse_u32_arg(&mut args, "--scanline-step", 1, 32, &usage)?;
+            }
+            "--vignette" => {
+                settings.vignette = parse_f32_arg(&mut args, "--vignette", 0.0, 1.0, &usage)?;
+            }
+            "--brightness" => {
+                settings.brightness = parse_f32_arg(&mut args, "--brightness", -1.0, 1.0, &usage)?;
+            }
+            "--contrast" => {
+                settings.contrast = parse_f32_arg(&mut args, "--contrast", 0.0, 3.0, &usage)?;
+            }
+            "--saturation" => {
+                settings.saturation = parse_f32_arg(&mut args, "--saturation", 0.0, 3.0, &usage)?;
+            }
+            "--noise" => {
+                settings.noise = parse_f32_arg(&mut args, "--noise", 0.0, 1.0, &usage)?;
+            }
+            "--bloom" => {
+                settings.bloom = parse_f32_arg(&mut args, "--bloom", 0.0, 1.0, &usage)?;
+            }
+            "--seed" => {
+                settings.seed = parse_u64_arg(&mut args, "--seed", &usage)?;
+            }
+            _ if arg.starts_with('-') => {
+                return Err(format!("unknown option: {arg}\n{usage}").into());
+            }
+            _ => {
+                if input_path.is_some() {
+                    return Err(usage.into());
+                }
+                input_path = Some(PathBuf::from(arg));
+            }
+        }
+    }
+
+    let input_path = input_path.ok_or(usage)?;
+    Ok(ParseOutcome::Run(CliArgs {
+        input_path,
+        settings,
+    }))
+}
+
+fn parse_f32_arg(
+    args: &mut env::ArgsOs,
+    flag: &str,
+    min: f32,
+    max: f32,
+    usage: &str,
+) -> Result<f32, Box<dyn Error>> {
+    let value = next_arg_value(args, flag, usage)?;
+    let parsed = value
+        .parse::<f32>()
+        .map_err(|_| format!("invalid value for {flag}: {value}\n{usage}"))?;
+    if parsed < min || parsed > max {
+        return Err(
+            format!("value out of range for {flag}: {value} (expected {min}..{max})").into(),
+        );
+    }
+    Ok(parsed)
+}
+
+fn parse_i32_arg(
+    args: &mut env::ArgsOs,
+    flag: &str,
+    min: i32,
+    max: i32,
+    usage: &str,
+) -> Result<i32, Box<dyn Error>> {
+    let value = next_arg_value(args, flag, usage)?;
+    let parsed = value
+        .parse::<i32>()
+        .map_err(|_| format!("invalid value for {flag}: {value}\n{usage}"))?;
+    if parsed < min || parsed > max {
+        return Err(
+            format!("value out of range for {flag}: {value} (expected {min}..{max})").into(),
+        );
+    }
+    Ok(parsed)
+}
+
+fn parse_u32_arg(
+    args: &mut env::ArgsOs,
+    flag: &str,
+    min: u32,
+    max: u32,
+    usage: &str,
+) -> Result<u32, Box<dyn Error>> {
+    let value = next_arg_value(args, flag, usage)?;
+    let parsed = value
+        .parse::<u32>()
+        .map_err(|_| format!("invalid value for {flag}: {value}\n{usage}"))?;
+    if parsed < min || parsed > max {
+        return Err(
+            format!("value out of range for {flag}: {value} (expected {min}..{max})").into(),
+        );
+    }
+    Ok(parsed)
+}
+
+fn parse_u64_arg(args: &mut env::ArgsOs, flag: &str, usage: &str) -> Result<u64, Box<dyn Error>> {
+    let value = next_arg_value(args, flag, usage)?;
+    let parsed = value
+        .parse::<u64>()
+        .map_err(|_| format!("invalid value for {flag}: {value}\n{usage}"))?;
+    Ok(parsed)
+}
+
+fn next_arg_value(
+    args: &mut env::ArgsOs,
+    flag: &str,
+    usage: &str,
+) -> Result<String, Box<dyn Error>> {
+    let value = args
+        .next()
+        .ok_or_else(|| format!("missing value for {flag}\n{usage}"))?;
+    Ok(value.to_string_lossy().into_owned())
+}
+
+fn print_help(bin: &str) {
+    println!("cymg - Cyber image CLI");
+    println!();
+    println!("Usage:");
+    println!("  {bin} [options] <image-path>");
+    println!();
+    println!("Color boost:");
+    println!("  --red                 Boost red tone");
+    println!("  --green               Boost green tone");
+    println!("  --blue                Boost blue tone");
+    println!();
+    println!("Effect options:");
+    println!("  --intensity <0.0-2.0>      Overall effect strength (default: 1.0)");
+    println!("  --glitch-shift <0-128>     RGB shift size in pixels (default: 9)");
+    println!("  --glitch-rate <0.0-1.0>    Chance of strong glitch rows (default: 0.18)");
+    println!("  --scanline <0.0-1.0>       Scanline darkness (default: 0.24)");
+    println!("  --scanline-step <1-32>     Scanline interval in rows (default: 3)");
+    println!("  --vignette <0.0-1.0>       Vignette amount (default: 0.45)");
+    println!("  --brightness <-1.0-1.0>    Brightness shift (default: 0.0)");
+    println!("  --contrast <0.0-3.0>       Contrast gain (default: 1.08)");
+    println!("  --saturation <0.0-3.0>     Saturation gain (default: 1.15)");
+    println!("  --noise <0.0-1.0>          Film/noise amount (default: 0.08)");
+    println!("  --bloom <0.0-1.0>          Neon bloom amount (default: 0.20)");
+    println!("  --seed <u64>               Seed for deterministic glitch/noise (default: 2077)");
+    println!("  -h, --help                 Show this help");
+    println!();
+    println!("Output:");
+    println!("  Saves to: <input-stem>.cyber.<input-ext> in the same directory.");
+    println!();
+    println!("Examples:");
+    println!("  {bin} input.jpg");
+    println!("  {bin} --red --intensity 1.35 --glitch-shift 14 --glitch-rate 0.28 input.jpg");
+    println!("  {bin} --blue --scanline 0.35 --scanline-step 2 --vignette 0.6 input.png");
+    println!(
+        "  {bin} --brightness -0.10 --contrast 1.25 --saturation 1.4 --noise 0.2 --bloom 0.35 --seed 42 input.webp"
+    );
+}
+
+fn build_output_path(input_path: &Path) -> Result<PathBuf, Box<dyn Error>> {
+    let stem = input_path
+        .file_stem()
+        .ok_or("input image must have a file name")?;
+    let ext = input_path
+        .extension()
+        .ok_or("input image must have an extension")?;
+
+    let mut output_name = OsString::new();
+    output_name.push(stem);
+    output_name.push(".cyber.");
+    output_name.push(ext);
+
+    let parent = input_path.parent().unwrap_or(Path::new("."));
+    Ok(parent.join(output_name))
+}
+
+fn apply_cyberpunk_effect(src: &RgbImage, settings: EffectSettings) -> RgbImage {
+    let width = src.width();
+    let height = src.height();
+    let mut processed: RgbImage = ImageBuffer::new(width, height);
+    let (red_gain, green_gain, blue_gain) = color_gains(settings.color_boost);
+
+    for y in 0..height {
+        let y_i32 = y as i32;
+        let row_glitch = random_unit(settings.seed, 991, y as u64, 3) < settings.glitch_rate;
+
+        let base_red_shift = random_shift(settings.seed, y as u64, settings.glitch_shift, 17);
+        let base_blue_shift = random_shift(settings.seed, y as u64, settings.glitch_shift, 23);
+        let row_boost = if row_glitch { settings.glitch_shift } else { 0 };
+        let red_shift = base_red_shift + row_boost;
+        let blue_shift = base_blue_shift - row_boost;
+
+        for x in 0..width {
+            let x_i32 = x as i32;
+            let src_r = sample_rgb(src, x_i32 + red_shift, y_i32);
+            let src_g = sample_rgb(src, x_i32, y_i32);
+            let src_b = sample_rgb(src, x_i32 + blue_shift, y_i32);
+
+            let mut r = src_r[0] as f32;
+            let mut g = src_g[1] as f32;
+            let mut b = src_b[2] as f32;
+
+            r *= 0.90;
+            g *= 0.68;
+            b *= 0.98;
+
+            let r_mix = r * 0.90 + b * 0.18;
+            let g_mix = g * 0.95 + r * 0.04;
+            let b_mix = b * 1.14 + r * 0.08;
+            r = r_mix;
+            g = g_mix;
+            b = b_mix;
+
+            if settings.scanline > 0.0 && y % settings.scanline_step == 0 {
+                let scanline_factor = 1.0 - settings.scanline;
+                r *= scanline_factor;
+                g *= scanline_factor;
+                b *= scanline_factor;
+            }
+
+            if settings.vignette > 0.0 {
+                let nx = if width > 1 {
+                    (x as f32 / (width - 1) as f32) * 2.0 - 1.0
+                } else {
+                    0.0
+                };
+                let ny = if height > 1 {
+                    (y as f32 / (height - 1) as f32) * 2.0 - 1.0
+                } else {
+                    0.0
+                };
+                let dist = ((nx * nx + ny * ny).sqrt() / 1.414_213_5).min(1.0);
+                let vignette_factor = 1.0 - dist.powf(1.8) * settings.vignette;
+                r *= vignette_factor;
+                g *= vignette_factor * 0.97;
+                b *= vignette_factor * 1.03;
+            }
+
+            if row_glitch && y % 7 == 0 {
+                r *= 1.08;
+                b *= 1.10;
+            }
+
+            r *= red_gain;
+            g *= green_gain;
+            b *= blue_gain;
+
+            apply_saturation(&mut r, &mut g, &mut b, settings.saturation);
+
+            r = (r - 128.0) * settings.contrast + 128.0 + settings.brightness * 255.0;
+            g = (g - 128.0) * settings.contrast + 128.0 + settings.brightness * 255.0;
+            b = (b - 128.0) * settings.contrast + 128.0 + settings.brightness * 255.0;
+
+            if settings.noise > 0.0 {
+                let noise_amp = settings.noise * 36.0;
+                r += (random_unit(settings.seed, x as u64, y as u64, 101) * 2.0 - 1.0) * noise_amp;
+                g += (random_unit(settings.seed, x as u64, y as u64, 211) * 2.0 - 1.0) * noise_amp;
+                b += (random_unit(settings.seed, x as u64, y as u64, 307) * 2.0 - 1.0) * noise_amp;
+            }
+
+            processed.put_pixel(x, y, Rgb([clamp_to_u8(r), clamp_to_u8(g), clamp_to_u8(b)]));
+        }
+    }
+
+    if settings.bloom > 0.0 {
+        processed = apply_bloom(&processed, settings.bloom);
+    }
+
+    blend_with_original(src, &processed, settings.intensity)
+}
+
+fn color_gains(boost: ColorBoost) -> (f32, f32, f32) {
+    match boost {
+        ColorBoost::None => (1.0, 1.0, 1.0),
+        ColorBoost::Red => (1.28, 0.94, 0.94),
+        ColorBoost::Green => (0.94, 1.28, 0.94),
+        ColorBoost::Blue => (0.94, 0.94, 1.28),
+    }
+}
+
+fn apply_saturation(r: &mut f32, g: &mut f32, b: &mut f32, saturation: f32) {
+    let lum = *r * 0.2126 + *g * 0.7152 + *b * 0.0722;
+    *r = lum + (*r - lum) * saturation;
+    *g = lum + (*g - lum) * saturation;
+    *b = lum + (*b - lum) * saturation;
+}
+
+fn apply_bloom(src: &RgbImage, bloom: f32) -> RgbImage {
+    let width = src.width();
+    let height = src.height();
+    let len = (width as usize) * (height as usize);
+    let mut bright_map = vec![[0.0_f32; 3]; len];
+    let threshold = 150.0 - bloom * 40.0;
+
+    for y in 0..height {
+        for x in 0..width {
+            let idx = pixel_index(x, y, width);
+            let p = src.get_pixel(x, y).0;
+            let r = p[0] as f32;
+            let g = p[1] as f32;
+            let b = p[2] as f32;
+            let lum = r * 0.2126 + g * 0.7152 + b * 0.0722;
+            let k = ((lum - threshold) / (255.0 - threshold)).clamp(0.0, 1.0);
+            bright_map[idx] = [r * k, g * k, b * k];
+        }
+    }
+
+    let passes = if bloom < 0.34 {
+        1
+    } else if bloom < 0.67 {
+        2
+    } else {
+        3
+    };
+    for _ in 0..passes {
+        bright_map = blur3x3(&bright_map, width, height);
+    }
+
+    let mut out: RgbImage = ImageBuffer::new(width, height);
+    let gain = bloom * 0.85;
+    for y in 0..height {
+        for x in 0..width {
+            let idx = pixel_index(x, y, width);
+            let base = src.get_pixel(x, y).0;
+            let glow = bright_map[idx];
+            let r = base[0] as f32 + glow[0] * gain;
+            let g = base[1] as f32 + glow[1] * gain;
+            let b = base[2] as f32 + glow[2] * gain;
+            out.put_pixel(x, y, Rgb([clamp_to_u8(r), clamp_to_u8(g), clamp_to_u8(b)]));
+        }
+    }
+
+    out
+}
+
+fn blur3x3(input: &[[f32; 3]], width: u32, height: u32) -> Vec<[f32; 3]> {
+    let mut out = vec![[0.0_f32; 3]; input.len()];
+    let width_i32 = width as i32;
+    let height_i32 = height as i32;
+
+    for y in 0..height_i32 {
+        for x in 0..width_i32 {
+            let mut sum = [0.0_f32; 3];
+            let mut count = 0.0_f32;
+
+            for yy in (y - 1)..=(y + 1) {
+                for xx in (x - 1)..=(x + 1) {
+                    let sx = xx.clamp(0, width_i32 - 1) as u32;
+                    let sy = yy.clamp(0, height_i32 - 1) as u32;
+                    let p = input[pixel_index(sx, sy, width)];
+                    sum[0] += p[0];
+                    sum[1] += p[1];
+                    sum[2] += p[2];
+                    count += 1.0;
+                }
+            }
+
+            out[pixel_index(x as u32, y as u32, width)] =
+                [sum[0] / count, sum[1] / count, sum[2] / count];
+        }
+    }
+
+    out
+}
+
+fn blend_with_original(src: &RgbImage, cyber: &RgbImage, intensity: f32) -> RgbImage {
+    if (intensity - 1.0).abs() < f32::EPSILON {
+        return cyber.clone();
+    }
+
+    let width = src.width();
+    let height = src.height();
+    let mut out: RgbImage = ImageBuffer::new(width, height);
+
+    for y in 0..height {
+        for x in 0..width {
+            let a = src.get_pixel(x, y).0;
+            let b = cyber.get_pixel(x, y).0;
+            let r = a[0] as f32 + (b[0] as f32 - a[0] as f32) * intensity;
+            let g = a[1] as f32 + (b[1] as f32 - a[1] as f32) * intensity;
+            let bb = a[2] as f32 + (b[2] as f32 - a[2] as f32) * intensity;
+            out.put_pixel(x, y, Rgb([clamp_to_u8(r), clamp_to_u8(g), clamp_to_u8(bb)]));
+        }
+    }
+
+    out
+}
+
+fn random_shift(seed: u64, y: u64, max_shift: i32, salt: u64) -> i32 {
+    if max_shift <= 0 {
+        return 0;
+    }
+    let span = (max_shift as u64) * 2 + 1;
+    let n = hash64(seed ^ (y.wrapping_mul(0x9E37_79B9_7F4A_7C15)) ^ salt) % span;
+    n as i32 - max_shift
+}
+
+fn random_unit(seed: u64, x: u64, y: u64, salt: u64) -> f32 {
+    let bits = hash64(
+        seed ^ (x.wrapping_mul(0x9E37_79B9_7F4A_7C15))
+            ^ (y.wrapping_mul(0xBF58_476D_1CE4_E5B9))
+            ^ salt,
+    );
+    let value = (bits >> 40) as u32;
+    value as f32 / 16_777_215.0
+}
+
+fn hash64(mut z: u64) -> u64 {
+    z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+fn pixel_index(x: u32, y: u32, width: u32) -> usize {
+    (y as usize) * (width as usize) + (x as usize)
+}
+
+fn sample_rgb(img: &RgbImage, x: i32, y: i32) -> [u8; 3] {
+    let max_x = img.width().saturating_sub(1) as i32;
+    let max_y = img.height().saturating_sub(1) as i32;
+
+    let xx = x.clamp(0, max_x) as u32;
+    let yy = y.clamp(0, max_y) as u32;
+    img.get_pixel(xx, yy).0
+}
+
+fn clamp_to_u8(v: f32) -> u8 {
+    v.round().clamp(0.0, 255.0) as u8
 }
