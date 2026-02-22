@@ -417,6 +417,7 @@ fn apply_cyberpunk_effect(src: &RgbImage, settings: EffectSettings) -> RgbImage 
             r = (r - 128.0) * settings.contrast + 128.0 + settings.brightness * 255.0;
             g = (g - 128.0) * settings.contrast + 128.0 + settings.brightness * 255.0;
             b = (b - 128.0) * settings.contrast + 128.0 + settings.brightness * 255.0;
+            apply_color_overdrive(&mut r, &mut g, &mut b, settings.color_boost);
 
             if settings.noise > 0.0 {
                 let noise_amp = settings.noise * 36.0;
@@ -440,8 +441,36 @@ fn color_gains(boost: ColorBoost) -> (f32, f32, f32) {
     match boost {
         ColorBoost::None => (1.0, 1.0, 1.0),
         ColorBoost::Red => (1.28, 0.94, 0.94),
-        ColorBoost::Green => (0.94, 1.28, 0.94),
-        ColorBoost::Blue => (0.94, 0.94, 1.28),
+        ColorBoost::Green => (1.05, 1.85, 1.08),
+        ColorBoost::Blue => (1.05, 1.12, 1.95),
+    }
+}
+
+fn apply_color_overdrive(r: &mut f32, g: &mut f32, b: &mut f32, boost: ColorBoost) {
+    match boost {
+        ColorBoost::None | ColorBoost::Red => {}
+        ColorBoost::Green => {
+            *r = *r * 1.10 + 18.0;
+            *g = *g * 1.58 + 44.0;
+            *b = *b * 1.16 + 20.0;
+
+            let lum = *r * 0.2126 + *g * 0.7152 + *b * 0.0722;
+            let shoulder = ((lum - 120.0) / 110.0).clamp(0.0, 1.0);
+            *r += shoulder * 20.0;
+            *g += shoulder * 56.0;
+            *b += shoulder * 26.0;
+        }
+        ColorBoost::Blue => {
+            *r = *r * 1.10 + 16.0;
+            *g = *g * 1.18 + 22.0;
+            *b = *b * 1.62 + 48.0;
+
+            let lum = *r * 0.2126 + *g * 0.7152 + *b * 0.0722;
+            let shoulder = ((lum - 118.0) / 105.0).clamp(0.0, 1.0);
+            *r += shoulder * 18.0;
+            *g += shoulder * 24.0;
+            *b += shoulder * 62.0;
+        }
     }
 }
 
